@@ -67,7 +67,7 @@ fn fragment_main(
 
 
 
-    out.color = vec4f(mix(color, reflection, 0.3), 1);
+    out.color = vec4f(mix(color, reflection, 1), 1);
 
     return out;
 }

@@ -1,4 +1,5 @@
 import { mat4, quat, vec3 } from "gl-matrix"
+import { RenderPipeline } from "./RenderPass";
 
 export type GpuBufferView = {
     buff: GPUBuffer, //base buffer
@@ -29,11 +30,11 @@ export default class Model {
     public scale: vec3;
     public constructor(
         private readonly device: GPUDevice,
+        public readonly shader: RenderPipeline,
         public readonly indices: GpuBufferView, 
         public readonly vertices: GpuBufferView, 
         public readonly uniform: GpuBufferView,
         public readonly binds: GPUBindGroup[],
-        public readonly shader: ModelType,
     ){
         this.offset = [0,0,0];
         this.rotation = [0,0,0];
@@ -50,4 +51,104 @@ export default class Model {
         quat.fromEuler(q, this.rotation[0], this.rotation[1], this.rotation[2]);
         return mat4.fromRotationTranslationScale(mat, q, this.offset, this.scale);
     }
+}
+
+export class BasicModel extends Model {
+    constructor(
+        device: GPUDevice,
+        pipeline: RenderPipeline,
+        indices: GpuBufferView, 
+        vertices: GpuBufferView, 
+        uniform: GpuBufferView,
+        diffuse: GPUTexture,
+        ){
+            const binds = [device.createBindGroup({
+                    layout: pipeline.getBindGroup(1),
+                    entries: [
+                        { 
+                            binding: 2,
+                            resource: {
+                                buffer: uniform.buff,
+                                offset: uniform.offset,
+                                size: uniform.size
+                            }
+                        },
+                        {
+                            binding: 3, 
+                            resource: diffuse.createView()
+                        }
+                    ]
+                })];
+            super(device, pipeline, indices, vertices, uniform, binds);
+        }
+}
+
+
+export class EnvDebugModel extends Model {
+    constructor(
+        device: GPUDevice,
+        pipeline: RenderPipeline,
+        indices: GpuBufferView, 
+        vertices: GpuBufferView, 
+        uniform: GpuBufferView,
+        public env_map: GPUTexture,
+        ){
+            const binds = [device.createBindGroup({
+                    layout: pipeline.getBindGroup(1),
+                    entries: [
+                        { 
+                            binding: 2,
+                            resource: env_map.createView({dimension: "cube"})
+                        },
+                    ]
+                })];
+            super(device, pipeline, indices, vertices, uniform, binds);
+        }
+}
+
+
+export class EnvModel extends Model {
+    public readonly env_map: GPUTexture;
+    public readonly env_depth: GPUTexture;
+    constructor(
+        device: GPUDevice,
+        pipeline: RenderPipeline,
+        indices: GpuBufferView, 
+        vertices: GpuBufferView, 
+        uniform: GpuBufferView,
+        diffuse: GPUTexture){
+            const env = device.createTexture({
+                size: [512,512,6],
+                format: "rgba8unorm",
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+            });
+            const binds = [device.createBindGroup({
+                layout: pipeline.getBindGroup(1),
+                entries: [
+                    {
+                        binding: 2,
+                        resource: env.createView({dimension: "cube"})
+                    },
+                    { 
+                        binding: 3,
+                        resource: {
+                            buffer: uniform.buff,
+                            offset: uniform.offset,
+                            size: uniform.size
+                        }
+                    },
+                    {
+                        binding: 4, 
+                        resource: diffuse.createView()
+                    }
+                ]
+            })];
+            super(device, pipeline, indices, vertices, uniform, binds);
+            this.env_map = env;
+            this.env_depth = device.createTexture({
+                size: [512,512,6],
+                format: "depth32float",
+                usage: GPUTextureUsage.RENDER_ATTACHMENT
+            })
+        }
 }
