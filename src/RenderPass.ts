@@ -120,8 +120,9 @@ export type RenderPassParams = {
     depthWrite?: boolean,
     depthCompare?: GPUCompareFunction,
     topology?: GPUPrimitiveTopology,
-    vertex_constants?: Record<string,number>
-    fragment_constants?: Record<string,number>
+    vertex_constants?: Record<string,number>,
+    fragment_constants?: Record<string,number>,
+    no_depth?: boolean
 }
 
 export type ComputePassParams = {
@@ -155,7 +156,7 @@ export class RenderPipeline {
                 topology: params.topology || "triangle-list",
                 cullMode: params.cullMode || "none",
             },
-            depthStencil: {
+            depthStencil: params.no_depth ? undefined : {
                 format: "depth32float",
                 depthWriteEnabled: params.depthWrite || true,
                 depthCompare: params.depthCompare || "less",

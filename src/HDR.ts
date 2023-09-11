@@ -1,0 +1,1 @@
+export const HDR_FORMAT = "rgba16float";

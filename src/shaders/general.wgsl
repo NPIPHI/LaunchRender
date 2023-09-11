@@ -56,7 +56,7 @@ fn fragment_main(
 
     let color = textureSample(diffuse_tex, tex_sampler, data.uv).xyz;
 
-    out.color = vec4f(color, 1);
+    out.color = vec4f(color*2, 1);
 
     return out;
 }

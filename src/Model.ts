@@ -1,5 +1,6 @@
 import { mat4, quat, vec3 } from "gl-matrix"
 import { RenderPipeline } from "./RenderPass";
+import { HDR_FORMAT } from "./HDR";
 
 export type GpuBufferView = {
     buff: GPUBuffer, //base buffer
@@ -10,11 +11,11 @@ export type GpuBufferView = {
 export const MODELTYPE: {
     ENV_MAPPED: 0,
     GENERAL: 1,
-    ENV_DEBUG: 2,
+    SKYBOX: 2,
 } = {
     ENV_MAPPED: 0,
     GENERAL: 1,
-    ENV_DEBUG: 2,
+    SKYBOX: 2
 }
 
 export type ModelType = 0 | 1 | 2;
@@ -29,7 +30,7 @@ export default class Model {
     public rotation: vec3;
     public scale: vec3;
     public constructor(
-        private readonly device: GPUDevice,
+        protected readonly device: GPUDevice,
         public readonly shader: RenderPipeline,
         public readonly indices: GpuBufferView, 
         public readonly vertices: GpuBufferView, 
@@ -45,7 +46,7 @@ export default class Model {
         this.device.queue.writeBuffer(this.uniform.buff, this.uniform.offset, new Float32Array(this.model_matrix()), 0);
     }
 
-    private model_matrix(): mat4 {
+    protected model_matrix(): mat4 {
         let mat = mat4.create();
         let q = quat.create();
         quat.fromEuler(q, this.rotation[0], this.rotation[1], this.rotation[2]);
@@ -83,28 +84,44 @@ export class BasicModel extends Model {
         }
 }
 
-
-export class EnvDebugModel extends Model {
+export class SkyBoxModel extends Model {
     constructor(
         device: GPUDevice,
         pipeline: RenderPipeline,
         indices: GpuBufferView, 
         vertices: GpuBufferView, 
         uniform: GpuBufferView,
-        public env_map: GPUTexture,
+        optical_depth_lookup: GPUTexture,
         ){
             const binds = [device.createBindGroup({
-                    layout: pipeline.getBindGroup(1),
-                    entries: [
-                        { 
-                            binding: 2,
-                            resource: env_map.createView({dimension: "cube"})
-                        },
-                    ]
-                })];
+                layout: pipeline.getBindGroup(1),
+                entries: [
+                    { 
+                        binding: 2,
+                        resource: {
+                            buffer: uniform.buff,
+                            offset: uniform.offset,
+                            size: uniform.size
+                        }
+                    },
+                    {
+                        binding: 3,
+                        resource: optical_depth_lookup.createView()
+                    }
+                ]
+            })];            
             super(device, pipeline, indices, vertices, uniform, binds);
         }
+
+        public update_uniform() {
+            t+=0.0005;
+            // t = 0.1;
+            let sun_dir = [Math.cos(t), 0, Math.sin(t)];
+            this.device.queue.writeBuffer(this.uniform.buff, this.uniform.offset, new Float32Array([...this.model_matrix(), ...sun_dir]), 0);
+        }
 }
+
+let t = 0;
 
 
 export class EnvModel extends Model {
@@ -119,15 +136,16 @@ export class EnvModel extends Model {
         diffuse: GPUTexture){
             const env = device.createTexture({
                 size: [512,512,6],
-                format: "rgba8unorm",
-                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+                format: HDR_FORMAT,
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+                label: "env map tex"
             });
             const binds = [device.createBindGroup({
                 layout: pipeline.getBindGroup(1),
                 entries: [
                     {
                         binding: 2,
-                        resource: env.createView({dimension: "cube"})
+                        resource: env.createView({dimension: "cube", format: HDR_FORMAT, label: "env view"})
                     },
                     { 
                         binding: 3,
@@ -139,7 +157,7 @@ export class EnvModel extends Model {
                     },
                     {
                         binding: 4, 
-                        resource: diffuse.createView()
+                        resource: diffuse.createView({label: "diffuse view"})
                     }
                 ]
             })];
@@ -148,7 +166,8 @@ export class EnvModel extends Model {
             this.env_depth = device.createTexture({
                 size: [512,512,6],
                 format: "depth32float",
-                usage: GPUTextureUsage.RENDER_ATTACHMENT
+                usage: GPUTextureUsage.RENDER_ATTACHMENT,
+                label: "env map depth tex"
             })
         }
 }

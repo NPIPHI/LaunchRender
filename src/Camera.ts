@@ -13,7 +13,7 @@ export class Camera {
     constructor(){
         this.pitch =  -0.53;
         this.yaw =  -2.7199999999999966;
-        this.pos = [0,1,0]
+        this.pos = [0,1.4,1.2]
         this.speed = 3;
         //[-0.0016491291680722497, 0.9704154129140079, 0.7839999897405505] -0.8800000000000003 -2.259999999999999
         this.keymap = new Map();
