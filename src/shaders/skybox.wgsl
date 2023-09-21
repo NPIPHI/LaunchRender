@@ -14,6 +14,7 @@ struct Settings {
     camera: mat4x4f,
     view_pos: vec3f,
     quality: u32,
+    height: f32,
 }
 
 struct Settings2 {
@@ -54,20 +55,21 @@ fn vertex_main(
 const PI = 3.1415926535;
 const EARTH_RADIUS = 6371000.0;
 const EARTH_ATMOSPHERE_RADIUS = 6471000.0;
-const SCATTER_COUNT = 20;
-const SCATTER_COUNT_CHEAP = 10;
+const SCATTER_COUNT = 15;
+const SCATTER_COUNT_CHEAP = 6;
 const RED_WAVELENGTH = 700.0;
 const GREEN_WAVELENGTH = 530.0;
 const BLUE_WAVELENGTH = 440.0;
 const SCATTER_STRENGTH = 0.08;
 const SCATTER_BIAS = 800.0;
-const SUN_INTENSITY = 100000.0;
-const SUN_RADIUS = 2 * PI / 180;
+const SUN_INTENSITY = 1000.0;
+const SUN_RADIUS = 1 * PI / 180;
 
 const SCATTER_RED = pow(SCATTER_BIAS/RED_WAVELENGTH, 4) * SCATTER_STRENGTH;
 const SCATTER_GREEN = pow(SCATTER_BIAS/GREEN_WAVELENGTH, 4) * SCATTER_STRENGTH;
 const SCATTER_BLUE = pow(SCATTER_BIAS/BLUE_WAVELENGTH, 4) * SCATTER_STRENGTH;
 const SCATTER_COEFF = vec3f(SCATTER_RED, SCATTER_GREEN, SCATTER_BLUE);
+const MIE_COEFF = 0.05;
 const DENSITY_FACTOR = 0.0001;
 
 fn density(pos: vec3f) -> f32 {
@@ -80,11 +82,11 @@ fn sample_optical(uv: vec2f) -> f32 {
     let iuv = uv * vec2f(dims);
     let f = fract(iuv);
     let s00 = textureLoad(optical_depth_tex, vec2u(iuv), 0).x;
-    // let s01 = textureLoad(optical_depth_tex, min(vec2u(iuv)+vec2u(0,1), vec2u(dims.x-1,dims.y-1)), 0).x;
-    // let s10 = textureLoad(optical_depth_tex, min(vec2u(iuv)+vec2u(1,1), vec2u(dims.x-1,dims.y-1)), 0).x;
-    // let s11 = textureLoad(optical_depth_tex, min(vec2u(iuv)+vec2u(1,1), vec2u(dims.x-1,dims.y-1)), 0).x;
-    return s00;
-    // return (s00 * (1-f.x) + s10 * f.x) * (1-f.y) + (s01 * (1-f.x) + s11 * f.x) * f.y;
+    let s01 = textureLoad(optical_depth_tex, min(vec2u(iuv)+vec2u(0,1), vec2u(dims.x-1,dims.y-1)), 0).x;
+    let s10 = textureLoad(optical_depth_tex, min(vec2u(iuv)+vec2u(1,1), vec2u(dims.x-1,dims.y-1)), 0).x;
+    let s11 = textureLoad(optical_depth_tex, min(vec2u(iuv)+vec2u(1,1), vec2u(dims.x-1,dims.y-1)), 0).x;
+    return (s00 * (1-f.x) + s10 * f.x) * (1-f.y) + (s01 * (1-f.x) + s11 * f.x) * f.y;
+    // return s00;
 }
 
 fn precalc_optical_depth(pos: vec3f, d: vec3f) -> f32 {
@@ -147,15 +149,11 @@ fn calc_light(o: vec3f, d: vec3f, len: f32) -> vec3f {
     for(var i =  0; i < SCATTER_COUNT; i++){
         let view_optical_depth = full_depth - precalc_optical_depth(in_scatter_pt, d);
         let local_density = density(in_scatter_pt);
-        let sample_ct = 6;
-        for(var j = 0; j < sample_ct; j++){
-            let sun_size = 0.15;
-            let t = f32(j) * 6.28 / f32(sample_ct);
-            let sample_dir = normalize(sun_dir + sun_size*cos(t) * tangent + sun_size*sin(t) * bitangent);
-            let sun_optical_depth = precalc_optical_depth(in_scatter_pt, sample_dir);
-            let transmittance = exp(-(sun_optical_depth + view_optical_depth) * SCATTER_COEFF);
-            in_scattered_light += local_density * transmittance * SCATTER_COEFF * step_size / f32(sample_ct);
-        }
+        let sun_optical_depth = precalc_optical_depth(in_scatter_pt, sun_dir);
+        let rayleigh_transmittance = exp(-(sun_optical_depth + view_optical_depth) * SCATTER_COEFF);
+        let mie_transmittance = exp(-(sun_optical_depth + view_optical_depth) * MIE_COEFF);
+        in_scattered_light += local_density * rayleigh_transmittance * SCATTER_COEFF * step_size;
+        in_scattered_light += local_density * mie_transmittance * MIE_COEFF * step_size;
         in_scatter_pt += d * step_size;
     }
 
@@ -168,7 +166,7 @@ fn fragment_main(
 ) -> FragmentOut {
     var out: FragmentOut;
     let dir = normalize(data.pos);
-    let earth_pos = vec3f(0,0,EARTH_RADIUS);
+    let earth_pos = vec3f(0,0,EARTH_RADIUS+settings.height);
     let sun_dir = local_settings.sun_dir;
     var light: vec3f;
 

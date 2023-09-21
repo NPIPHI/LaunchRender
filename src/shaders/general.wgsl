@@ -40,10 +40,11 @@ fn vertex_main(
 ) -> VertexOut {
     var out: VertexOut;
     
-    out.screen_pos = settings.camera * local_settings.model * vec4f(position, 1);
+    let trans_pos = local_settings.model * vec4f(position,1);
+    out.screen_pos = settings.camera * trans_pos;
     out.norm = normal;
     out.uv = vec2f(uv.x, uv.y);
-    out.pos = position;
+    out.pos = trans_pos.xyz;
 
     return out;
 }
@@ -55,6 +56,8 @@ fn fragment_main(
     var out: FragmentOut;
 
     let color = textureSample(diffuse_tex, tex_sampler, data.uv).xyz;
+    let l = distance(data.pos, settings.view_pos);
+
 
     out.color = vec4f(color*2, 1);
 

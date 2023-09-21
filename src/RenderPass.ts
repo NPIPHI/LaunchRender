@@ -114,6 +114,8 @@ export const Vertexformats: VertexFormatCollection = {
 } 
 
 export type RenderPassParams = {
+    depthBiasClamp?: number;
+    depthBias?: number;
     cullMode?: GPUCullMode;
     targets: GPUColorTargetState[],
     vertex_layout: GPUVertexBufferLayout[],
@@ -160,6 +162,8 @@ export class RenderPipeline {
                 format: "depth32float",
                 depthWriteEnabled: params.depthWrite || true,
                 depthCompare: params.depthCompare || "less",
+                depthBias: params.depthBias,
+                depthBiasClamp: params.depthBiasClamp
             },
             label: label + " pipeline",
         });

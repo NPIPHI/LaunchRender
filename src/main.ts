@@ -15,15 +15,16 @@ async function main() {
 
 
     const app = new App(canvas, device);
+    app.set_height(0);
     const camera = new Camera();
-    let rocket: Model;
-    let spheres: Model[] = [];
+    let height = 0;
+    let ground: Model;
     const run = (time: number)=>{
-        spheres.forEach((s,i)=>{
-            let x = i % 8;
-            let y = (i - x) / 8;
-            // s.offset = [x*4,y*4,Math.sin(time/1000+i)];
-        })
+        // if(ground){
+        //     height += 0.1;
+        //     ground.offset = [0,0,-height]
+        // }
+        // app.set_height(height);
         // if(rocket) {
         //     rocket.offset = [0,0,0*Math.sin(time/1000)];
         //     rocket.rotation = [90,0,time/1000];
@@ -37,25 +38,23 @@ async function main() {
     window.addEventListener("resize", ()=>app.resize());
     requestAnimationFrame(run);
 
-    for(let i = 0; i < 1; i++){
-        app.load_model("sphere.bin", MODELTYPE.ENV_MAPPED).then(model=>{
-            app.add_model(model);
-            model.rotation = [90,0,0];
-            spheres.push(model);
-        });
-    }
+    app.load_model("intrepid.bin", MODELTYPE.ENV_MAPPED).then(model=>{
+        app.add_model(model);
+        model.rotation = [90,0,0];
+    });
 
     // app.load_model("cube.bin", MODELTYPE.ENV_DEBUG).then(model=>app.add_model(model));
-    app.load_model("satground.bin", MODELTYPE.GENERAL).then(model=>{
+    app.load_model("satground2.bin", MODELTYPE.GENERAL).then(model=>{
         app.add_model(model);
-        model.offset = [0,0,-3];
+        ground = model
+        model.offset = [0,0,-100];
         model.rotation = [90,0,0];
-        model.scale = [10,10,10];
+        model.scale = [1000,1,1000];
     });
 
     app.load_model("cube.bin", MODELTYPE.SKYBOX).then(model=>{
         app.add_model(model);
-        model.scale = [1000,1000,1000];
+        model.scale = [10000,10000,10000];
     })
 }
 

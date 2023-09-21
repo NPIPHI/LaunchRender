@@ -6,6 +6,7 @@ import skybox_src from "./shaders/skybox.wgsl";
 import general_src from "./shaders/general.wgsl";
 import post_src from "./shaders/post.wgsl";
 import optical_depth_src from "./shaders/optical_depth.wgsl";
+import blur_src from "./shaders/blur.wgsl";
 import Model, { BasicModel, EnvModel, MODELTYPE, ModelType, SkyBoxModel } from "./Model";
 import { LoadFile } from "./Loader";
 import { HDR_FORMAT } from "./HDR";
@@ -21,26 +22,34 @@ export class App {
     private sampler: GPUSampler;
     private pipelines: RenderPipeline[];
     private optical_depth_pipeline: ComputePipeline;
+    private blur_pipeline1: ComputePipeline;
+    private blur_pipeline2: ComputePipeline;
     private post_pipeline: RenderPipeline;
 
     private settings_uniform: GPUBuffer;
     private depth_buffer: GPUTexture;
     private optiacl_depth_tex: GPUTexture;
     private hdr_buffer: GPUTexture;
+    private blur_tex1: GPUTexture;
+    private blur_tex2: GPUTexture;
     private post_bind: GPUBindGroup;
+    private blur_bind1: GPUBindGroup;
+    private blur_bind2: GPUBindGroup;
     private env_uniform_cache: Map<RenderPipeline, GPUBindGroup[]>;
     private optical_depth_lookup_size = [512,8192];
 
     private models: Model[];
 
-    private width: number;
+    private img_width: number;
+    private img_height: number;
     private height: number;
 
     constructor(canvas: HTMLCanvasElement, device: GPUDevice) {
         this.device = device;
         this.canvas = canvas;
-        this.width = this.canvas.width = this.canvas.clientWidth;
-        this.height = this.canvas.height = this.canvas.clientHeight;
+        this.img_width = this.canvas.width = this.canvas.clientWidth;
+        this.img_height = this.canvas.height = this.canvas.clientHeight;
+        this.height = 0;
         this.ctx = canvas.getContext("webgpu");
         this.models = [];
         const canvas_format = navigator.gpu.getPreferredCanvasFormat();
@@ -59,7 +68,11 @@ export class App {
 
         this.pipelines[MODELTYPE.SKYBOX] = new RenderPipeline(this.device, skybox_src, {
             targets: [{format: HDR_FORMAT}],
-            vertex_layout: Vertexformats.V3DFULL
+            vertex_layout: Vertexformats.V3DFULL,
+            depthWrite: false,
+            // depthCompare: "equal",
+            // depthBias: 2,
+            // depthBiasClamp: 1
         }, "env debug");
 
         this.pipelines[MODELTYPE.GENERAL] = new RenderPipeline(this.device, general_src, {
@@ -72,6 +85,9 @@ export class App {
             vertex_layout: Vertexformats.EMPTY,
             no_depth: true
         }, "post");
+
+        this.blur_pipeline1 = new ComputePipeline(this.device, blur_src, {entry_point: "mainX"}, "blur1");
+        this.blur_pipeline2 = new ComputePipeline(this.device, blur_src, {entry_point: "mainY"}, "blur2");
 
         this.optical_depth_pipeline = new ComputePipeline(this.device, optical_depth_src, {}, "optical depth");
 
@@ -94,21 +110,31 @@ export class App {
     }
 
     resize(){
-        this.width = this.canvas.width = this.canvas.clientWidth;
-        this.height = this.canvas.height = this.canvas.clientHeight;
+        this.img_width = this.canvas.width = this.canvas.clientWidth;
+        this.img_height = this.canvas.height = this.canvas.clientHeight;
         this.make_screen_size_buffers();
     }
 
     private make_screen_size_buffers(){
         this.depth_buffer = this.device.createTexture({
-            size: [this.width, this.height],
+            size: [this.img_width, this.img_height],
             format: "depth32float",
             usage: T.RENDER_ATTACHMENT,
         });
         this.hdr_buffer = this.device.createTexture({
-            size: [this.width, this.height],
+            size: [this.img_width, this.img_height],
             format: "rgba16float",
             usage: T.RENDER_ATTACHMENT | T.TEXTURE_BINDING
+        });
+        this.blur_tex1 = this.device.createTexture({
+            size: [this.img_width, this.img_height],
+            format: "rgba16float",
+            usage: T.STORAGE_BINDING | T.TEXTURE_BINDING
+        });
+        this.blur_tex2 = this.device.createTexture({
+            size: [this.img_width, this.img_height],
+            format: "rgba16float",
+            usage: T.STORAGE_BINDING | T.TEXTURE_BINDING
         });
         this.post_bind = this.device.createBindGroup({
             layout: this.post_pipeline.getBindGroup(0),
@@ -116,10 +142,39 @@ export class App {
                 {
                     binding: 0,
                     resource: this.hdr_buffer.createView()
-                    // resource: this.optiacl_depth_tex.createView()
+                },
+                {
+                    binding: 1,
+                    resource: this.blur_tex2.createView()
                 }
             ],
             label: "post bind"
+        })
+        this.blur_bind1 = this.device.createBindGroup({
+            layout: this.blur_pipeline1.getBindGroup(0),
+            entries: [
+                {
+                    binding: 0,
+                    resource: this.hdr_buffer.createView()
+                },
+                {
+                    binding: 1,
+                    resource: this.blur_tex1.createView()
+                }
+            ]
+        })
+        this.blur_bind2 = this.device.createBindGroup({
+            layout: this.blur_pipeline2.getBindGroup(0),
+            entries: [
+                {
+                    binding: 0,
+                    resource: this.blur_tex1.createView()
+                },
+                {
+                    binding: 1,
+                    resource: this.blur_tex2.createView()
+                }
+            ]
         })
     }
 
@@ -130,7 +185,6 @@ export class App {
         this.optiacl_depth_tex = this.device.createTexture({
             size: this.optical_depth_lookup_size,
             usage: T.STORAGE_BINDING | T.TEXTURE_BINDING,
-            // format: "rgba16float"
             format: "r32float"
         });
 
@@ -220,10 +274,15 @@ export class App {
     set_camera(camera: Camera){
         const mvp = mat4.create();
         const perspective = mat4.create();
-        mat4.perspective(perspective, Math.PI/2, this.width/this.height, 0.001, Infinity);
+        mat4.perspective(perspective, Math.PI/2, this.img_width/this.img_height, 0.001, Infinity);
         mat4.multiply(mvp, perspective, camera.view());
         
         this.device.queue.writeBuffer(this.settings_uniform, 0, new Float32Array([...mvp,...camera.get_pos()]));
+    }
+
+    set_height(height: number) {
+        this.height = height;
+        this.device.queue.writeBuffer(this.settings_uniform, 80, new Float32Array([height]));
     }
 
     private env_map_settings(model: Model, side: number): Float32Array {
@@ -259,7 +318,7 @@ export class App {
         mat4.perspective(perspective, Math.PI/2, 1, 0.001, Infinity);
         mat4.multiply(mvp, perspective, cam);
 
-        return new Float32Array([...mvp,...model.offset]);
+        return new Float32Array([...mvp,...model.offset, this.height]);
     }
 
     private env_uniform(pipeline: RenderPipeline, uniform_offset: number) {
@@ -292,6 +351,16 @@ export class App {
 
         cache[uniform_offset] = bind;
         return bind;
+    }
+
+    private render_model(pass: GPURenderPassEncoder, model: Model){
+        model.update_uniform();
+        pass.setPipeline(model.shader.getPipeline());
+        pass.setBindGroup(0, this.env_uniform(model.shader, 0));
+        model.binds.forEach((b,i)=>pass.setBindGroup(i+1,b));
+        pass.setVertexBuffer(0, model.vertices.buff, model.vertices.offset, model.vertices.size);
+        pass.setIndexBuffer(model.indices.buff,"uint32", model.indices.offset, model.indices.size);
+        pass.drawIndexed(model.indices.size / 4);
     }
 
     draw() {
@@ -375,21 +444,25 @@ export class App {
 
             label: "primary pass"
         })
-
+     
         this.models.forEach(m=>{
-            m.update_uniform();
-            primary_pass.setPipeline(m.shader.getPipeline());
-            primary_pass.setBindGroup(0, this.env_uniform(m.shader, 0));
-            m.binds.forEach((b,i)=>primary_pass.setBindGroup(i+1,b));
-            primary_pass.setVertexBuffer(0, m.vertices.buff, m.vertices.offset, m.vertices.size);
-            primary_pass.setIndexBuffer(m.indices.buff,"uint32", m.indices.offset, m.indices.size);
-            primary_pass.drawIndexed(m.indices.size / 4);
-            rendered_tris += m.indices.size / 4;
-            draw_calls++;
-        })
-
+            this.render_model(primary_pass, m);
+        });
+        
         primary_pass.end();
         render_passes++;
+
+        const blur_pass1 = encoder.beginComputePass();
+        blur_pass1.setPipeline(this.blur_pipeline1.getPipeline());
+        blur_pass1.setBindGroup(0, this.blur_bind1);
+        blur_pass1.dispatchWorkgroups(Math.ceil(this.img_width/8),Math.ceil(this.img_height/8));
+        blur_pass1.end();
+
+        const blur_pass2 = encoder.beginComputePass();
+        blur_pass2.setPipeline(this.blur_pipeline2.getPipeline());
+        blur_pass2.setBindGroup(0, this.blur_bind2);
+        blur_pass2.dispatchWorkgroups(Math.ceil(this.img_width/8),Math.ceil(this.img_height/8));
+        blur_pass2.end();
 
         const post_pass = encoder.beginRenderPass({
             colorAttachments: [

@@ -65,7 +65,7 @@ fn fragment_main(
     let reflection = textureSample(env_map, tex_sampler, reflection_dir).xyz;
     let color = textureSample(diffuse_tex, tex_sampler, data.uv).xyz;
 
-    out.color = vec4f(mix(color, reflection, 0.5), 1);
+    out.color = vec4f(mix(color, reflection, 0.1), 1);
 
     return out;
 }

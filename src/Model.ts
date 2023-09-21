@@ -116,7 +116,7 @@ export class SkyBoxModel extends Model {
         public update_uniform() {
             t+=0.0005;
             // t = 0.1;
-            let sun_dir = [Math.cos(t), 0, Math.sin(t)];
+            let sun_dir = [Math.cos(t), 0, Math.abs(Math.sin(t))];
             this.device.queue.writeBuffer(this.uniform.buff, this.uniform.offset, new Float32Array([...this.model_matrix(), ...sun_dir]), 0);
         }
 }

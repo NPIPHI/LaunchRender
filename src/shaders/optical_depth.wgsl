@@ -27,7 +27,7 @@ fn optical_depth(pos: vec3f, d: vec3f, len: f32) -> f32 {
 }
 
 fn density(pos: vec3f) -> f32 {
-    let h = max(length(pos) - EARTH_RADIUS,0);
+    let h = max(length(pos) - EARTH_RADIUS, 0);
     return DENSITY_FACTOR * exp(-h / 9300);
 }
 
