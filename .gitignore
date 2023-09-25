@@ -2,5 +2,4 @@
 bundle.js
 bundle.js.map
 package-lock.json
-*.bin
 /scratch
